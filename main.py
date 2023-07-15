@@ -3,11 +3,17 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import datetime as dt
 import yfinance as yf
+import tensorflow as tf
+import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1' 
 
 from tensorflow.python.keras.layers import Dense, Dropout, LSTM
 from tensorflow.python.keras import Sequential
 from sklearn.preprocessing import MinMaxScaler  
 from pandas_datareader import data as pdr
+
+# physical_devices = tf.config.list_physical_devices('GPU')
+# tf.config.set_visible_devices(physical_devices[0], 'CPU')
 
 yf.pdr_override()
 crypto_currency = 'BTC'
@@ -36,3 +42,52 @@ x_train = np.reshape(x_train, (x_train.shape[0], x_train.shape[1], 1))
 # Build The Model
 
 model = Sequential()
+
+model.add(LSTM(units=50, return_sequences=True, input_shape=(x_train.shape[1], 1))) # 50 neurons
+model.add(Dropout(0.2))
+model.add(LSTM(units=50, return_sequences=True))
+model.add(Dropout(0.2))
+model.add(LSTM(units=50))
+model.add(Dropout(0.2))
+model.add(Dense(units=1)) # Prediction of the next closing value
+
+model.compile(optimizer='adam', loss='mean_squared_error')
+model.fit(x_train, y_train, epochs=25, batch_size=32)
+
+# Test The Model Accuracy on Existing Data
+
+test_start = dt.datetime(2020, 1, 1)
+test_end = dt.datetime.now()
+
+test_data = pdr.get_data_yahoo(f'{crypto_currency}-{against_currency}', test_start, test_end)
+actual_prices = test_data['Close'].values
+
+total_dataset = pd.concat((data['Close'], test_data['Close']), axis=0)
+
+model_inputs = total_dataset[len(total_dataset) - len(test_data) - prediction_days:].values
+model_inputs = model_inputs.reshape(-1,1)
+model_inputs = scaler.transform(model_inputs)
+
+# Make Predictions on Test Data
+
+x_test = []
+
+for x in range(prediction_days, len(model_inputs)):
+    x_test.append(model_inputs[x-prediction_days:x, 0])
+
+x_test = np.array(x_test)
+x_test = np.reshape(x_test, (x_test.shape[0], x_test.shape[1], 1))
+
+predicted_prices = model.predict(x_test)
+predicted_prices = scaler.inverse_transform(predicted_prices)
+
+plt.plot(actual_prices, color='black' , label="Actual Prices")
+plt.plot(predicted_prices, color='green' , label="Predicted Prices")
+plt.title(f"{crypto_currency} price prediction")
+plt.xlabel("Time")
+plt.ylabel("Price")
+plt.legend(loc="upper left")
+plt.show()
+
+
+
